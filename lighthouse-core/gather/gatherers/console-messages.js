@@ -11,7 +11,7 @@
 
 'use strict';
 
-const Gatherer = require('../../fraggle-rock/gather/base-gatherer.js');
+const FRGatherer = require('../../fraggle-rock/gather/base-gatherer.js');
 
 /**
  * @param {LH.Crdp.Runtime.RemoteObject} obj
@@ -30,11 +30,7 @@ function remoteObjectToString(obj) {
   return `[${type} ${className}]`;
 }
 
-/**
- * @implements {LH.Gatherer.GathererInstance}
- * @implements {LH.Gatherer.FRGathererInstance}
- */
-class ConsoleMessages extends Gatherer {
+class ConsoleMessages extends FRGatherer {
   /** @type {LH.Gatherer.GathererMeta} */
   meta = {
     supportedModes: ['timespan', 'navigation'],
@@ -139,7 +135,7 @@ class ConsoleMessages extends Gatherer {
   /**
    * @param {LH.Gatherer.FRTransitionalContext} passContext
    */
-  async beforeTimespan(passContext) {
+  async startInstrumentation(passContext) {
     const session = passContext.driver.defaultSession;
 
     session.on('Log.entryAdded', this._onLogEntryAdded);
@@ -155,15 +151,21 @@ class ConsoleMessages extends Gatherer {
 
   /**
    * @param {LH.Gatherer.FRTransitionalContext} passContext
-   * @return {Promise<LH.Artifacts['ConsoleMessages']>}
+   * @return {Promise<void>}
    */
-  async afterTimespan({driver}) {
+  async stopInstrumentation({driver}) {
     await driver.defaultSession.sendCommand('Log.stopViolationsReport');
     await driver.defaultSession.off('Log.entryAdded', this._onLogEntryAdded);
     await driver.defaultSession.sendCommand('Log.disable');
     await driver.defaultSession.off('Runtime.consoleAPICalled', this._onConsoleAPICalled);
     await driver.defaultSession.off('Runtime.exceptionThrown', this._onExceptionThrown);
     await driver.defaultSession.sendCommand('Runtime.disable');
+  }
+
+  /**
+   * @return {Promise<LH.Artifacts['ConsoleMessages']>}
+   */
+  async getArtifact() {
     return this._logEntries;
   }
 }

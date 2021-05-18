@@ -6,7 +6,7 @@
   TestRunner.addResult('Tests that lighthouse panel passes flags.\n');
   await TestRunner.navigatePromise('resources/lighthouse-basic.html');
 
-  await TestRunner.loadModule('lighthouse_test_runner');
+  await TestRunner.loadTestModule('lighthouse_test_runner');
   await TestRunner.showPanel('lighthouse');
 
   const dialogElement = LighthouseTestRunner.getContainerElement();
@@ -19,7 +19,7 @@
   LighthouseTestRunner.dumpStartAuditState();
   LighthouseTestRunner.getRunButton().click();
 
-  const {artifacts, lhr} = await LighthouseTestRunner.waitForResults();
+  const {lhr} = await LighthouseTestRunner.waitForResults();
   TestRunner.addResult('\n=============== Lighthouse Results ===============');
   TestRunner.addResult(`formFactor: ${lhr.configSettings.formFactor}`);
   TestRunner.addResult(`disableStorageReset: ${lhr.configSettings.disableStorageReset}`);

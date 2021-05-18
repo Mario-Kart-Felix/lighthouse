@@ -11,7 +11,12 @@ const {initializeConfig} = require('../../../fraggle-rock/config/config.js');
 /* eslint-env jest */
 
 describe('Fraggle Rock Config', () => {
-  const gatherMode = 'snapshot';
+  /** @type {LH.Gatherer.GatherMode} */
+  let gatherMode = 'snapshot';
+
+  beforeEach(() => {
+    gatherMode = 'snapshot';
+  });
 
   it('should throw if the config path is not absolute', () => {
     const configFn = () =>
@@ -58,8 +63,63 @@ describe('Fraggle Rock Config', () => {
   });
 
   it('should throw on invalid artifact definitions', () => {
-    const configJson = {artifacts: [{id: 'ImageElements', gatherer: 'image-elements'}]};
-    expect(() => initializeConfig(configJson, {gatherMode})).toThrow(/ImageElements gatherer/);
+    const configJson = {artifacts: [{id: 'FullPageScreenshot', gatherer: 'full-page-screenshot'}]};
+    expect(() => initializeConfig(configJson, {gatherMode})).toThrow(/FullPageScreenshot gatherer/);
+  });
+
+  it('should resolve navigation definitions', () => {
+    gatherMode = 'navigation';
+    const configJson = {
+      artifacts: [{id: 'Accessibility', gatherer: 'accessibility'}],
+      navigations: [{id: 'default', artifacts: ['Accessibility']}],
+    };
+    const {config} = initializeConfig(configJson, {gatherMode});
+
+    expect(config).toMatchObject({
+      artifacts: [{id: 'Accessibility', gatherer: {path: 'accessibility'}}],
+      navigations: [
+        {id: 'default', artifacts: [{id: 'Accessibility', gatherer: {path: 'accessibility'}}]},
+      ],
+    });
+  });
+
+  it('should throw when navigations are defined without artifacts', () => {
+    const configJson = {
+      navigations: [{id: 'default', artifacts: ['Accessibility']}],
+    };
+
+    expect(() => initializeConfig(configJson, {gatherMode})).toThrow(/Cannot use navigations/);
+  });
+
+  it('should throw when navigations use unrecognized artifacts', () => {
+    const configJson = {
+      artifacts: [],
+      navigations: [{id: 'default', artifacts: ['Accessibility']}],
+    };
+
+    expect(() => initializeConfig(configJson, {gatherMode})).toThrow(/Unrecognized artifact/);
+  });
+
+  it('should set default properties on navigations', () => {
+    gatherMode = 'navigation';
+    const configJson = {
+      artifacts: [],
+      navigations: [{id: 'default'}],
+    };
+    const {config} = initializeConfig(configJson, {gatherMode});
+
+    expect(config).toMatchObject({
+      navigations: [
+        {
+          id: 'default',
+          blankPage: 'about:blank',
+          artifacts: [],
+          disableThrottling: false,
+          networkQuietThresholdMs: 0,
+          cpuQuietThresholdMs: 0,
+        },
+      ],
+    });
   });
 
   it('should filter configuration by gatherMode', () => {
@@ -75,19 +135,121 @@ describe('Fraggle Rock Config', () => {
 
     const {config} = initializeConfig(configJson, {gatherMode: 'snapshot'});
     expect(config).toMatchObject({
-      artifacts: [
-        {id: 'Accessibility', gatherer: {path: 'accessibility'}},
-      ],
+      artifacts: [{id: 'Accessibility', gatherer: {path: 'accessibility'}}],
+    });
+  });
+
+  describe('resolveArtifactDependencies', () => {
+    /** @type {LH.Gatherer.FRGathererInstance} */
+    let dependencyGatherer;
+    /** @type {LH.Gatherer.FRGathererInstance<'ImageElements'>} */
+    let dependentGatherer;
+    /** @type {LH.Config.Json} */
+    let configJson;
+
+    beforeEach(() => {
+      const dependencySymbol = Symbol('dependency');
+      dependencyGatherer = new BaseGatherer();
+      dependencyGatherer.meta = {symbol: dependencySymbol, supportedModes: ['snapshot']};
+      // @ts-expect-error - we satisfy the interface on the next line
+      dependentGatherer = new BaseGatherer();
+      dependentGatherer.meta = {
+        supportedModes: ['snapshot'],
+        dependencies: {ImageElements: dependencySymbol},
+      };
+
+      configJson = {
+        artifacts: [
+          {id: 'Dependency', gatherer: {instance: dependencyGatherer}},
+          {id: 'Dependent', gatherer: {instance: dependentGatherer}},
+        ],
+        navigations: [
+          {id: 'default', artifacts: ['Dependency']},
+          {id: 'second', artifacts: ['Dependent']},
+        ],
+      };
+    });
+
+    it('should resolve artifact dependencies', () => {
+      const {config} = initializeConfig(configJson, {gatherMode: 'snapshot'});
+      expect(config).toMatchObject({
+        artifacts: [
+          {id: 'Dependency', gatherer: {instance: dependencyGatherer}},
+          {
+            id: 'Dependent',
+            gatherer: {
+              instance: dependentGatherer,
+            },
+            dependencies: {
+              ImageElements: {id: 'Dependency'},
+            },
+          },
+        ],
+      });
+    });
+
+    it('should resolve artifact dependencies in navigations', () => {
+      const {config} = initializeConfig(configJson, {gatherMode: 'snapshot'});
+      expect(config).toMatchObject({
+        navigations: [
+          {artifacts: [{id: 'Dependency'}]},
+          {
+            artifacts: [
+              {
+                id: 'Dependent',
+                dependencies: {
+                  ImageElements: {id: 'Dependency'},
+                },
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    it('should throw when dependencies are out of order in artifacts', () => {
+      if (!configJson.artifacts) throw new Error('Failed to run beforeEach');
+      configJson.artifacts = [configJson.artifacts[1], configJson.artifacts[0]];
+      expect(() => initializeConfig(configJson, {gatherMode: 'snapshot'}))
+        .toThrow(/Failed to find dependency/);
+    });
+
+    it('should throw when dependencies are out of order within a navigation', () => {
+      if (!configJson.navigations) throw new Error('Failed to run beforeEach');
+      const invalidNavigation = {id: 'default', artifacts: ['Dependent', 'Dependency']};
+      configJson.navigations = [invalidNavigation];
+      expect(() => initializeConfig(configJson, {gatherMode: 'snapshot'}))
+        .toThrow(/Failed to find dependency/);
+    });
+
+    it('should throw when dependencies are out of order between navigations', () => {
+      if (!configJson.navigations) throw new Error('Failed to run beforeEach');
+      const invalidNavigation = {id: 'default', artifacts: ['Dependent']};
+      configJson.navigations = [invalidNavigation];
+      expect(() => initializeConfig(configJson, {gatherMode: 'snapshot'}))
+        .toThrow(/Failed to find dependency/);
+    });
+
+    it('should throw when timespan needs snapshot', () => {
+      dependentGatherer.meta.supportedModes = ['timespan'];
+      dependencyGatherer.meta.supportedModes = ['snapshot'];
+      expect(() => initializeConfig(configJson, {gatherMode: 'navigation'}))
+        .toThrow(/Dependency.*is invalid/);
+    });
+
+    it('should throw when timespan needs navigation', () => {
+      dependentGatherer.meta.supportedModes = ['timespan'];
+      dependencyGatherer.meta.supportedModes = ['navigation'];
+      expect(() => initializeConfig(configJson, {gatherMode: 'navigation'}))
+        .toThrow(/Dependency.*is invalid/);
     });
   });
 
   it.todo('should support extension');
   it.todo('should support plugins');
-  it.todo('should set default properties on navigations');
   it.todo('should adjust default pass options for throttling method');
-  it.todo('should normalize gatherer inputs');
-  it.todo('should require gatherers from their paths');
   it.todo('should filter configuration by inclusive settings');
   it.todo('should filter configuration by exclusive settings');
   it.todo('should validate audit/gatherer interdependencies');
+  it.todo('should validate gatherers do not support all 3 modes');
 });

@@ -8,6 +8,7 @@
 const TraceOfTab = require('../trace-of-tab.js');
 const Speedline = require('../speedline.js');
 const FirstContentfulPaint = require('./first-contentful-paint.js');
+const FirstContentfulPaintAllFrames = require('./first-contentful-paint-all-frames.js');
 const FirstMeaningfulPaint = require('./first-meaningful-paint.js');
 const LargestContentfulPaint = require('./largest-contentful-paint.js');
 const LargestContentfulPaintAllFrames = require('./largest-contentful-paint-all-frames.js');
@@ -19,21 +20,23 @@ const SpeedIndex = require('./speed-index.js');
 const EstimatedInputLatency = require('./estimated-input-latency.js');
 const MaxPotentialFID = require('./max-potential-fid.js');
 const TotalBlockingTime = require('./total-blocking-time.js');
+const LayoutShiftVariants = require('../layout-shift-variants.js');
 const makeComputedArtifact = require('../computed-artifact.js');
 
 class TimingSummary {
   /**
      * @param {LH.Trace} trace
      * @param {LH.DevtoolsLog} devtoolsLog
-     * @param {LH.Audit.Context} context
+     * @param {ImmutableObject<LH.Config.Settings>} settings
+     * @param {LH.Artifacts.ComputedContext} context
      * @return {Promise<{metrics: LH.Artifacts.TimingSummary, debugInfo: Record<string,boolean>}>}
      */
-  static async summarize(trace, devtoolsLog, context) {
-    const metricComputationData = {trace, devtoolsLog, settings: context.settings};
+  static async summarize(trace, devtoolsLog, settings, context) {
+    const metricComputationData = {trace, devtoolsLog, settings};
     /**
      * @template TArtifacts
      * @template TReturn
-     * @param {{request: (artifact: TArtifacts, context: LH.Audit.Context) => Promise<TReturn>}} Artifact
+     * @param {{request: (artifact: TArtifacts, context: LH.Artifacts.ComputedContext) => Promise<TReturn>}} Artifact
      * @param {TArtifacts} artifact
      * @return {Promise<TReturn|undefined>}
      */
@@ -44,6 +47,7 @@ class TimingSummary {
     const traceOfTab = await TraceOfTab.request(trace, context);
     const speedline = await Speedline.request(trace, context);
     const firstContentfulPaint = await FirstContentfulPaint.request(metricComputationData, context);
+    const firstContentfulPaintAllFrames = await requestOrUndefined(FirstContentfulPaintAllFrames, metricComputationData); // eslint-disable-line max-len
     const firstMeaningfulPaint = await FirstMeaningfulPaint.request(metricComputationData, context);
     const largestContentfulPaint = await requestOrUndefined(LargestContentfulPaint, metricComputationData); // eslint-disable-line max-len
     const largestContentfulPaintAllFrames = await requestOrUndefined(LargestContentfulPaintAllFrames, metricComputationData); // eslint-disable-line max-len
@@ -55,6 +59,7 @@ class TimingSummary {
     const speedIndex = await requestOrUndefined(SpeedIndex, metricComputationData);
     const estimatedInputLatency = await EstimatedInputLatency.request(metricComputationData, context); // eslint-disable-line max-len
     const totalBlockingTime = await TotalBlockingTime.request(metricComputationData, context); // eslint-disable-line max-len
+    const layoutShiftVariants = await LayoutShiftVariants.request(trace, context);
 
     const cumulativeLayoutShiftValue = cumulativeLayoutShift &&
       cumulativeLayoutShift.value !== null ?
@@ -67,6 +72,8 @@ class TimingSummary {
       // Include the simulated/observed performance metrics
       firstContentfulPaint: firstContentfulPaint.timing,
       firstContentfulPaintTs: firstContentfulPaint.timestamp,
+      firstContentfulPaintAllFrames: firstContentfulPaintAllFrames && firstContentfulPaintAllFrames.timing, // eslint-disable-line max-len
+      firstContentfulPaintAllFramesTs: firstContentfulPaintAllFrames && firstContentfulPaintAllFrames.timestamp, // eslint-disable-line max-len
       firstMeaningfulPaint: firstMeaningfulPaint.timing,
       firstMeaningfulPaintTs: firstMeaningfulPaint.timestamp,
       largestContentfulPaint: largestContentfulPaint && largestContentfulPaint.timing,
@@ -97,6 +104,8 @@ class TimingSummary {
       observedFirstPaintTs: traceOfTab.timestamps.firstPaint,
       observedFirstContentfulPaint: traceOfTab.timings.firstContentfulPaint,
       observedFirstContentfulPaintTs: traceOfTab.timestamps.firstContentfulPaint,
+      observedFirstContentfulPaintAllFrames: traceOfTab.timings.firstContentfulPaintAllFrames,
+      observedFirstContentfulPaintAllFramesTs: traceOfTab.timestamps.firstContentfulPaintAllFrames,
       observedFirstMeaningfulPaint: traceOfTab.timings.firstMeaningfulPaint,
       observedFirstMeaningfulPaintTs: traceOfTab.timestamps.firstMeaningfulPaint,
       observedLargestContentfulPaint: traceOfTab.timings.largestContentfulPaint,
@@ -119,6 +128,17 @@ class TimingSummary {
       observedLastVisualChangeTs: (speedline.complete + speedline.beginning) * 1000,
       observedSpeedIndex: speedline.speedIndex,
       observedSpeedIndexTs: (speedline.speedIndex + speedline.beginning) * 1000,
+
+      // Include experimental LayoutShift variants.
+      layoutShiftAvgSessionGap5s: layoutShiftVariants.avgSessionGap5s,
+      layoutShiftMaxSessionGap1s: layoutShiftVariants.maxSessionGap1s,
+      layoutShiftMaxSessionGap1sLimit5s: layoutShiftVariants.maxSessionGap1sLimit5s,
+      layoutShiftMaxSliding1s: layoutShiftVariants.maxSliding1s,
+      layoutShiftMaxSliding300ms: layoutShiftVariants.maxSliding300ms,
+
+      // And new CLS (layoutShiftMaxSessionGap1sLimit5s) across all frames.
+      // eslint-disable-next-line max-len
+      layoutShiftMaxSessionGap1sLimit5sAllFrames: layoutShiftVariants.layoutShiftMaxSessionGap1sLimit5sAllFrames,
     };
     /** @type {Record<string,boolean>} */
     const debugInfo = {lcpInvalidated: traceOfTab.lcpInvalidated};
@@ -126,12 +146,12 @@ class TimingSummary {
     return {metrics, debugInfo};
   }
   /**
-   * @param {{trace: LH.Trace, devtoolsLog: LH.DevtoolsLog}} data
-   * @param {LH.Audit.Context} context
+   * @param {{trace: LH.Trace, devtoolsLog: LH.DevtoolsLog, settings: ImmutableObject<LH.Config.Settings>}} data
+   * @param {LH.Artifacts.ComputedContext} context
    * @return {Promise<{metrics: LH.Artifacts.TimingSummary, debugInfo: Record<string,boolean>}>}
    */
   static async compute_(data, context) {
-    return TimingSummary.summarize(data.trace, data.devtoolsLog, context);
+    return TimingSummary.summarize(data.trace, data.devtoolsLog, data.settings, context);
   }
 }
 

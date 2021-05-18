@@ -28,6 +28,7 @@ const UISTRINGS_REGEX = /UIStrings = .*?\};\n/s;
 
 const foldersWithStrings = [
   `${LH_ROOT}/lighthouse-core`,
+  `${LH_ROOT}/lighthouse-treemap`,
   path.dirname(require.resolve('lighthouse-stack-packs')) + '/packs',
 ];
 
@@ -39,6 +40,7 @@ const ignoredPathComponents = [
   '**/test/**',
   '**/*-test.js',
   '**/*-renderer.js',
+  'lighthouse-treemap/app/src/main.js',
 ];
 
 /**
@@ -586,11 +588,18 @@ function collectAllStringsInDir(dir) {
       if (seenStrings.has(ctc.message)) {
         ctc.meaning = ctc.description;
         const seenId = seenStrings.get(ctc.message);
-        if (seenId) {
+        // TODO: `strings[seenId]` check shouldn't be necessary here ...
+        // see https://github.com/GoogleChrome/lighthouse/pull/12441/files#r630521367
+        if (seenId && strings[seenId]) {
           if (!strings[seenId].meaning) {
             strings[seenId].meaning = strings[seenId].description;
             collisions++;
           }
+
+          if (ctc.meaning === strings[seenId].meaning) {
+            throw new Error(`'${messageKey}' is an exact duplicate of '${seenId}' when placeholders are removed. Each strings' \`message\` or \`description\` must be different for the translation pipeline`);
+          }
+
           collisionStrings.push(ctc.message);
           collisions++;
         }
@@ -618,7 +627,7 @@ function writeStringsToCtcFiles(locale, strings) {
   fs.writeFileSync(fullPath, JSON.stringify(output, null, 2) + '\n');
 }
 
-// @ts-expect-error Test if called from the CLI or as a module.
+// Test if called from the CLI or as a module.
 if (require.main === module) {
   /** @type {Record<string, CtcMessage>} */
   const strings = {};
@@ -631,7 +640,7 @@ if (require.main === module) {
 
   if (collisions > 0) {
     console.log(`MEANING COLLISION: ${collisions} string(s) have the same content.`);
-    assert.equal(collisions, 32, `The number of duplicate strings have changed, update this assertion if that is expected, or reword strings. Collisions: ${collisionStrings.join('\n')}`);
+    assert.equal(collisions, 30, `The number of duplicate strings have changed, update this assertion if that is expected, or reword strings. Collisions: ${collisionStrings.join('\n')}`);
   }
 
   writeStringsToCtcFiles('en-US', strings);
@@ -641,8 +650,7 @@ if (require.main === module) {
   console.log('Written to disk!', 'en-XL.ctc.json');
 
   // Bake the ctc en-US and en-XL files into en-US and en-XL LHL format
-  const lhl = collectAndBakeCtcStrings(path.join(LH_ROOT, 'lighthouse-core/lib/i18n/locales/'),
-      path.join(LH_ROOT, 'lighthouse-core/lib/i18n/locales/'));
+  const lhl = collectAndBakeCtcStrings(path.join(LH_ROOT, 'lighthouse-core/lib/i18n/locales/'));
   lhl.forEach(function(locale) {
     console.log(`Baked ${locale} into LHL format.`);
   });

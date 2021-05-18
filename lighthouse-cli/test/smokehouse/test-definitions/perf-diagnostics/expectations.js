@@ -66,13 +66,58 @@ module.exports = [
             items: [
               {
                 product: 'YouTube Embedded Player (Video)',
-                blockingTime: 0,
+                blockingTime: 0, // Note: Only 0 if the iframe was out-of-process
                 transferSize: '>400000', // Transfer size is imprecise.
                 subItems: {
                   type: 'subitems',
                   items: {
                     length: '>5', // We don't care exactly how many it has, just ensure we surface the subresources.
                   },
+                },
+              },
+            ],
+          },
+        },
+      },
+    },
+  },
+  {
+    lhr: {
+      requestedUrl: 'http://localhost:10200/perf/unsized-images.html',
+      finalUrl: 'http://localhost:10200/perf/unsized-images.html',
+      audits: {
+        'unsized-images': {
+          score: 0,
+          details: {
+            items: [
+              {
+                node: {
+                  snippet: '<img src="../launcher-icon-100x100.png" width="100">',
+                },
+              },
+              {
+                node: {
+                  snippet: '<img src="../launcher-icon-100x100.png" height="100">',
+                },
+              },
+              {
+                node: {
+                  snippet: '<img src="../launcher-icon-100x100.png" style="width: 100;">',
+                },
+              },
+              {
+                node: {
+                  snippet: '<img src="../launcher-icon-100x100.png" style="height: 100;">',
+                },
+              },
+              {
+                node: {
+                  snippet: '<img src="../launcher-icon-100x100.png" style="aspect-ratio: 1 / 1;">',
+                },
+              },
+              {
+                node: {
+                  snippet: '<img src="../launcher-icon-100x100.png" style="width: 100; height: auto;">',
                 },
               },
             ],

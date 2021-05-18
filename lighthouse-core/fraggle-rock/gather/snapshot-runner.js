@@ -7,6 +7,11 @@
 
 const Driver = require('./driver.js');
 const Runner = require('../../runner.js');
+const {
+  getEmptyArtifactState,
+  collectPhaseArtifacts,
+  awaitArtifacts,
+} = require('./runner-helpers.js');
 const {initializeConfig} = require('../config/config.js');
 const {getBaseArtifacts} = require('./base-artifacts.js');
 
@@ -16,31 +21,34 @@ async function snapshot(options) {
   const driver = new Driver(options.page);
   await driver.connect();
 
+  /** @type {Map<string, LH.ArbitraryEqualityMap>} */
+  const computedCache = new Map();
   const url = await options.page.url();
 
   return Runner.run(
     async () => {
-      const baseArtifacts = getBaseArtifacts(config);
+      const baseArtifacts = await getBaseArtifacts(config, driver);
       baseArtifacts.URL.requestedUrl = url;
       baseArtifacts.URL.finalUrl = url;
 
-      /** @type {Partial<LH.GathererArtifacts>} */
-      const artifacts = {};
+      const artifactDefinitions = config.artifacts || [];
+      const artifactState = getEmptyArtifactState();
+      await collectPhaseArtifacts({
+        phase: 'getArtifact',
+        gatherMode: 'snapshot',
+        driver,
+        artifactDefinitions,
+        artifactState,
+        computedCache,
+      });
 
-      for (const {id, gatherer} of config.artifacts || []) {
-        const artifactName = /** @type {keyof LH.GathererArtifacts} */ (id);
-        const artifact = await Promise.resolve()
-          .then(() => gatherer.instance.snapshot({gatherMode: 'snapshot', driver}))
-          .catch(err => err);
-
-        artifacts[artifactName] = artifact;
-      }
-
+      const artifacts = await awaitArtifacts(artifactState);
       return /** @type {LH.Artifacts} */ ({...baseArtifacts, ...artifacts}); // Cast to drop Partial<>
     },
     {
       url,
       config,
+      computedCache,
     }
   );
 }

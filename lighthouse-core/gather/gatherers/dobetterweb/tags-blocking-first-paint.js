@@ -20,7 +20,7 @@
 
 const Gatherer = require('../gatherer.js');
 
-/* global document, window, HTMLLinkElement */
+/* global document, window, performance, HTMLLinkElement, SVGScriptElement */
 
 /** @typedef {{href: string, media: string, msSinceHTMLEnd: number, matches: boolean}} MediaChange */
 /** @typedef {{tagName: 'LINK', url: string, href: string, rel: string, media: string, disabled: boolean, mediaChanges: Array<MediaChange>}} LinkTag */
@@ -37,13 +37,13 @@ function installMediaListener() {
       const mediaChange = {
         href: this.href,
         media: val,
-        msSinceHTMLEnd: Date.now() - window.performance.timing.responseEnd,
+        msSinceHTMLEnd: Date.now() - performance.timing.responseEnd,
         matches: window.matchMedia(val).matches,
       };
       // @ts-expect-error - `___linkMediaChanges` created above.
       window.___linkMediaChanges.push(mediaChange);
 
-      return this.setAttribute('media', val);
+      this.setAttribute('media', val);
     },
   });
 }
@@ -61,13 +61,10 @@ async function collectTagsThatBlockFirstPaint() {
   try {
     /** @type {Array<LinkTag>} */
     const linkTags = [...document.querySelectorAll('link')]
-      .filter(/** @return {tag is HTMLLinkElement} */ tag => {
-        if (tag.tagName !== 'LINK') return false;
-
+      .filter(linkTag => {
         // Filter stylesheet/HTML imports that block rendering.
         // https://www.igvita.com/2012/06/14/debunking-responsive-css-performance-myths/
         // https://www.w3.org/TR/html-imports/#dfn-import-async-attribute
-        const linkTag = /** @type {HTMLLinkElement} */ (tag);
         const blockingStylesheet = linkTag.rel === 'stylesheet' &&
           window.matchMedia(linkTag.media).matches && !linkTag.disabled;
         const blockingImport = linkTag.rel === 'import' && !linkTag.hasAttribute('async');
@@ -87,10 +84,11 @@ async function collectTagsThatBlockFirstPaint() {
 
     /** @type {Array<ScriptTag>} */
     const scriptTags = [...document.querySelectorAll('head script[src]')]
-      .filter(/** @return {tag is HTMLScriptElement} */ tag => {
-        if (tag.tagName !== 'SCRIPT') return false;
+      .filter(/** @return {scriptTag is HTMLScriptElement} */ scriptTag => {
+        // SVGScriptElement can't appear in <head> (it'll be kicked to <body>), but keep tsc happy.
+        // https://html.spec.whatwg.org/multipage/semantics.html#the-head-element
+        if (scriptTag instanceof SVGScriptElement) return false;
 
-        const scriptTag = /** @type {HTMLScriptElement} */ (tag);
         return (
           !scriptTag.hasAttribute('async') &&
           !scriptTag.hasAttribute('defer') &&
@@ -154,7 +152,7 @@ class TagsBlockingFirstPaint extends Gatherer {
       (min, record) => Math.min(min, record.endTime),
       Infinity
     );
-    const tags = await driver.evaluate(collectTagsThatBlockFirstPaint, {args: []});
+    const tags = await driver.executionContext.evaluate(collectTagsThatBlockFirstPaint, {args: []});
     const requests = TagsBlockingFirstPaint._filteredAndIndexedByUrl(networkRecords);
 
     /** @type {Array<LH.Artifacts.TagBlockingFirstPaint>} */
@@ -205,8 +203,9 @@ class TagsBlockingFirstPaint extends Gatherer {
    * @param {LH.Gatherer.PassContext} passContext
    */
   async beforePass(passContext) {
-    // Don't return return value of `evaluateScriptOnNewDocument`.
-    await passContext.driver.evaluateScriptOnNewDocument(`(${installMediaListener.toString()})()`);
+    const {executionContext} = passContext.driver;
+    // Don't return return value of `evaluateOnNewDocument`.
+    await executionContext.evaluateOnNewDocument(installMediaListener, {args: []});
   }
 
   /**

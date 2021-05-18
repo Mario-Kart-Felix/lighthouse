@@ -79,7 +79,6 @@ async function browserifyFile(entryPath, distPath) {
     .ignore('intl')
     .ignore('intl-pluralrules')
     .ignore('raven')
-    .ignore('rimraf')
     .ignore('pako/lib/zlib/inflate.js');
 
   // Don't include the desktop protocol connection.
@@ -198,7 +197,7 @@ async function cli(argv) {
   build(entryPath, distPath);
 }
 
-// @ts-expect-error Test if called from the CLI or as a module.
+// Test if called from the CLI or as a module.
 if (require.main === module) {
   cli(process.argv);
 } else {
