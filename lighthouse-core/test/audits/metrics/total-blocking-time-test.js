@@ -17,6 +17,7 @@ const lcpDevtoolsLog = require('../../fixtures/traces/lcp-m78.devtools.log.json'
 
 function generateArtifacts({trace, devtoolsLog}) {
   return {
+    GatherContext: {gatherMode: 'navigation'},
     traces: {[TBTAudit.DEFAULT_PASS]: trace},
     devtoolsLogs: {[TBTAudit.DEFAULT_PASS]: devtoolsLog},
   };
@@ -58,7 +59,7 @@ describe('Performance: total-blocking-time audit', () => {
 
     const outputMobile = await TBTAudit.audit(artifactsMobile, contextMobile);
     expect(outputMobile.numericValue).toBeCloseTo(333, 1);
-    expect(outputMobile.score).toBe(0.85);
+    expect(outputMobile.score).toBe(0.75);
     expect(outputMobile.displayValue).toBeDisplayString('330\xa0ms');
 
     const artifactsDesktop = generateArtifacts({trace: lcpTrace,

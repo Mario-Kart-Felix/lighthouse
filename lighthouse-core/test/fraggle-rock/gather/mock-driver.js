@@ -12,6 +12,7 @@ const {
   createMockOnceFn,
   createMockSendCommandFn,
 } = require('../../gather/mock-commands.js');
+const {defaultSettings} = require('../../../config/constants.js');
 
 /**
  * @fileoverview Mock fraggle rock driver for testing.
@@ -39,7 +40,7 @@ function createMockSession() {
 }
 
 /**
- * @param {LH.Gatherer.FRGathererInstance<LH.Gatherer.DependencyKey>['meta']} meta
+ * @param {LH.Gatherer.AnyFRGathererInstance['meta']} meta
  */
 function createMockGathererInstance(meta) {
   return {
@@ -50,7 +51,7 @@ function createMockGathererInstance(meta) {
     stopSensitiveInstrumentation: jest.fn(),
     getArtifact: jest.fn(),
 
-    /** @return {LH.Gatherer.FRGathererInstance} */
+    /** @return {LH.Gatherer.AnyFRGathererInstance} */
     asGatherer() {
       // @ts-expect-error - We'll rely on the tests passing to know this matches.
       return this;
@@ -134,6 +135,7 @@ function createMockContext() {
     gatherMode: 'navigation',
     computedCache: new Map(),
     dependencies: {},
+    settings: defaultSettings,
 
     /** @return {LH.Gatherer.FRTransitionalContext} */
     asContext() {
@@ -150,14 +152,19 @@ function createMockContext() {
 }
 
 function mockDriverSubmodules() {
-  const navigationMock = {gotoURL: jest.fn(),
-  };
+  const navigationMock = {gotoURL: jest.fn()};
   const prepareMock = {
     prepareTargetForNavigationMode: jest.fn(),
     prepareTargetForIndividualNavigation: jest.fn(),
   };
   const storageMock = {clearDataForOrigin: jest.fn()};
-  const emulationMock = {clearThrottling: jest.fn()};
+  const emulationMock = {
+    clearThrottling: jest.fn(),
+    emulate: jest.fn(),
+  };
+  const networkMock = {
+    fetchResponseBodyFromCache: jest.fn(),
+  };
 
   function reset() {
     navigationMock.gotoURL = jest.fn().mockResolvedValue({finalUrl: 'https://example.com', warnings: [], timedOut: false});
@@ -165,6 +172,8 @@ function mockDriverSubmodules() {
     prepareMock.prepareTargetForIndividualNavigation = jest.fn().mockResolvedValue({warnings: []});
     storageMock.clearDataForOrigin = jest.fn();
     emulationMock.clearThrottling = jest.fn();
+    emulationMock.emulate = jest.fn();
+    networkMock.fetchResponseBodyFromCache = jest.fn().mockResolvedValue('');
   }
 
   /**
@@ -178,6 +187,7 @@ function mockDriverSubmodules() {
   jest.mock('../../../gather/driver/navigation.js', () => new Proxy(navigationMock, {get}));
   jest.mock('../../../gather/driver/prepare.js', () => new Proxy(prepareMock, {get}));
   jest.mock('../../../gather/driver/storage.js', () => new Proxy(storageMock, {get}));
+  jest.mock('../../../gather/driver/network.js', () => new Proxy(networkMock, {get}));
   jest.mock('../../../lib/emulation.js', () => new Proxy(emulationMock, {get}));
 
   return {
@@ -185,6 +195,7 @@ function mockDriverSubmodules() {
     prepareMock,
     storageMock,
     emulationMock,
+    networkMock,
     reset,
   };
 }
